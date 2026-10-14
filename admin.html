@@ -30,6 +30,9 @@
   .btn.sec { background: var(--card2); color: var(--txt); }
   .btn.wa { background: var(--wa); color: #06210f; }
   .btn.peligro { background: #2a1414; color: var(--err); }
+  [hidden] { display: none !important; }
+  .dos-btn { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .dos-btn .btn { margin: 0; }
   .btn.mini { display: inline-block; width: auto; padding: 8px 12px; font-size: 14px; margin: 0; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-top: 10px; }
   .muted { color: var(--sub); font-size: 13px; }
@@ -272,7 +275,7 @@ function vistaAgenda(msg, wa) {
   const huerfanas = g.citas.filter(c => ids.indexOf(c.barberoId) < 0);
   const activas = g.citas.filter(c => c.estado === 'Pendiente' || c.estado === 'Confirmada').length;
   $('#app').innerHTML = nav('agenda') + avisoHtml(msg, wa) + `
-    <button class="btn" id="nueva">+ Nueva cita</button>
+    <div class="dos-btn"><button class="btn" id="ya">Atender ahora (sin cita)</button><button class="btn sec" id="nueva">+ Nueva cita</button></div>
     ${g.pendientes.length ? `<div class="card pend-card"><b>Por confirmar (${g.pendientes.length})</b>${g.pendientes.map(c => filaCita(c, true)).join('')}</div>` : ''}
     <div class="dias-nav">
       <button class="btn mini sec" id="ant" aria-label="Día anterior">‹</button>
@@ -302,6 +305,7 @@ function vistaAgenda(msg, wa) {
   $('#f-dia').onchange = e => { if (e.target.value) ir(e.target.value); };
   $('#f-barb').onchange = e => { A.barbero = e.target.value; vistaAgenda(); };
   $('#nueva').onclick = () => vistaCitaForm(null);
+  $('#ya').onclick = () => vistaAtenderYa();
   document.querySelectorAll('[data-turnos]').forEach(b => b.onclick = () => cargarTurnos(b.dataset.turnos));
   const todas = g.citas.concat(g.pendientes);
   document.querySelectorAll('[data-mover]').forEach(b => b.onclick = () => vistaCitaForm(todas.find(c => c.id === b.dataset.mover)));
@@ -315,6 +319,54 @@ function vistaAgenda(msg, wa) {
     try { const r = await api({ a: 'aEstadoCita', token: S.token, cita: c.id, estado: acc }); cargarAgenda(r.texto, r.wa); }
     catch (e) { b.disabled = false; alert(e.message); }
   });
+}
+
+/* Atención inmediata: cliente que llega sin cita. Toma la fecha y la hora de este momento. */
+function vistaAtenderYa() {
+  const g = AG;
+  const activos = g.barberos.filter(b => b.activo);
+  const ahora = () => new Date().toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Bogota' });
+  $('#app').innerHTML = `
+    <div class="top"><button class="link" id="volver">← Volver a la agenda</button><button class="link" id="salir">Salir</button></div>
+    <h2>Atender ahora</h2>
+    <p class="muted">Para el cliente que llega sin cita. La cita queda con la hora de este momento (<b id="y-hora">${esc(ahora())}</b>), confirmada y en la agenda del barbero.</p>
+    <div class="card">
+      <label for="y-barb">Barbero</label>
+      <select id="y-barb">${activos.map(b => `<option value="${esc(b.id)}" ${A.barbero === b.id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('')}</select>
+      <label for="y-serv">Servicio</label><select id="y-serv"></select>
+      <label for="y-nombre">Cliente (opcional)</label><input id="y-nombre" maxlength="60" placeholder="Cliente sin cita">
+      <label for="y-tel">WhatsApp (opcional)</label><input id="y-tel" type="tel" inputmode="numeric" placeholder="300 123 4567">
+      <label for="y-notas">Notas (opcional)</label><input id="y-notas" maxlength="200">
+    </div>
+    <div id="msg" class="err"></div>
+    <button class="btn" id="empezar">Empezar atención</button>
+    <button class="btn sec" id="forzar" hidden>Atender de todas formas</button>`;
+  $('#volver').onclick = () => vistaAgenda();
+  $('#salir').onclick = () => salir();
+  const reloj = setInterval(() => { const e = $('#y-hora'); if (e) e.textContent = ahora(); else clearInterval(reloj); }, 20000);
+  const opcionesServ = () => {
+    const barb = g.barberos.find(b => b.id === $('#y-barb').value), antes = $('#y-serv').value;
+    const lista = barb ? g.servicios.filter(s => barb.servicios.indexOf(s.id) >= 0) : g.servicios;
+    $('#y-serv').innerHTML = lista.map(s => `<option value="${esc(s.id)}" ${s.id === antes ? 'selected' : ''}>${esc(s.nombre)} · $${s.precio.toLocaleString('es-CO')} · ${s.dur} min</option>`).join('') || '<option value="">Sin servicios</option>';
+  };
+  opcionesServ();
+  $('#y-barb').onchange = () => { $('#forzar').hidden = true; $('#msg').textContent = ''; opcionesServ(); };
+  $('#y-serv').onchange = () => { $('#forzar').hidden = true; $('#msg').textContent = ''; };
+  const enviar = async forzar => {
+    if (!$('#y-barb').value) { $('#msg').textContent = 'No hay barberos activos.'; return; }
+    if (!$('#y-serv').value) { $('#msg').textContent = 'Elige el servicio.'; return; }
+    const b1 = $('#empezar'), b2 = $('#forzar'); b1.disabled = b2.disabled = true; $('#msg').textContent = '';
+    try {
+      const r = await api({ a: 'aAtenderYa', token: S.token, barbero: $('#y-barb').value, servicio: $('#y-serv').value,
+        nombre: $('#y-nombre').value, tel: $('#y-tel').value, notas: $('#y-notas').value, forzar: forzar });
+      if (r.cruce) { $('#msg').textContent = r.texto; b2.hidden = false; b1.disabled = b2.disabled = false; return; }
+      clearInterval(reloj);
+      A.fecha = g.hoy;
+      cargarAgenda(r.texto);
+    } catch (e) { b1.disabled = b2.disabled = false; $('#msg').textContent = e.message; }
+  };
+  $('#empezar').onclick = () => enviar(false);
+  $('#forzar').onclick = () => enviar(true);
 }
 
 /* Crear (c = null) o mover (c = la cita) */
