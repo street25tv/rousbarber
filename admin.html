@@ -56,6 +56,13 @@
   .dia.off input[type=time] { opacity: .3; }
   .switch { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--txt); font-size: 15px; }
   .switch input { width: 22px; height: 22px; accent-color: var(--acc); }
+  .chks { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .chks label { display: flex; align-items: center; gap: 10px; margin: 0; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card2); color: var(--txt); font-size: 14px; cursor: pointer; }
+  .chks label input { width: 18px; height: 18px; margin: 0; flex: 0 0 18px; accent-color: var(--acc); }
+  .chks label span { flex: 1; min-width: 0; }
+  .chks label small { color: var(--sub); white-space: nowrap; }
+  .chks label:has(input:checked) { border-color: var(--acc); }
+  .tag.combo { background: #2a2110; color: var(--acc); }
   .exito { border-color: #1f6b43; background: #10261a; }
   .grande { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 40px; letter-spacing: 3px; color: var(--acc); }
   .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -216,11 +223,12 @@ function nav(activa) {
       <button class="tab ${activa === 'productos' ? 'on' : ''}" data-nav="productos">Productos</button>
       <button class="tab ${activa === 'finanzas' ? 'on' : ''}" data-nav="finanzas">Finanzas</button>
       <button class="tab ${activa === 'servicios' ? 'on' : ''}" data-nav="servicios">Servicios</button>
+      <button class="tab ${activa === 'planes' ? 'on' : ''}" data-nav="planes">Planes</button>
       <button class="tab ${activa === 'barberos' ? 'on' : ''}" data-nav="barberos">Barberos</button>
     </div><button class="link" id="salir">Salir</button></div>`;
 }
 function bindNav() {
-  const ir = { agenda: cargarAgenda, facturar: cargarFacturacion, productos: cargarProductos, finanzas: cargarFinanzas, servicios: cargarServicios, barberos: cargar };
+  const ir = { agenda: cargarAgenda, facturar: cargarFacturacion, productos: cargarProductos, finanzas: cargarFinanzas, servicios: cargarServicios, planes: cargarPlanes, barberos: cargar };
   document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => (ir[b.dataset.nav] || cargarAgenda)());
   if ($('#salir')) $('#salir').onclick = () => salir();
 }
@@ -766,20 +774,24 @@ function vistaServicios(msg) {
   $('#app').innerHTML = nav('servicios') + (msg ? `<div class="okmsg">${esc(msg)}</div>` : '') + `
     <p class="muted">Lo que ven los clientes al reservar. La duración bloquea la agenda del barbero.</p>
     <button class="btn" id="nuevo-s">+ Nuevo servicio</button>
-    ${SV.map(s => `<div class="card"><div class="barb"><div><b>${esc(s.nombre)}</b>${s.activo ? '' : '<span class="tag no">Oculto</span>'}
-      <div class="muted">${pesosC(s.precio)} · ${s.dur} min${s.desc ? ' · ' + esc(s.desc) : ''}</div></div>
+    <button class="btn sec" id="nuevo-c">+ Nuevo combo</button>
+    ${SV.map(s => `<div class="card"><div class="barb"><div><b>${esc(s.nombre)}</b>${s.combo ? '<span class="tag combo">Combo</span>' : ''}${s.activo ? '' : '<span class="tag no">Oculto</span>'}
+      <div class="muted">${pesosC(s.precio)} · ${s.dur} min${s.combo && s.suelto > s.precio ? ' · por separado ' + pesosC(s.suelto) : ''}${s.desc ? ' · ' + esc(s.desc) : ''}</div>
+      ${s.combo ? `<div class="muted">Incluye: ${esc(s.incluyeNombres.join(' + '))}</div>` : ''}</div>
       <button class="btn mini sec" data-eds="${esc(s.id)}">Editar</button></div></div>`).join('') || '<p class="muted">Todavía no hay servicios.</p>'}`;
   bindNav();
   $('#nuevo-s').onclick = () => vistaServicioForm(null);
+  $('#nuevo-c').onclick = () => vistaServicioForm(null, true);
   document.querySelectorAll('[data-eds]').forEach(b => b.onclick = () => vistaServicioForm(SV.find(s => s.id === b.dataset.eds)));
 }
 
-function vistaServicioForm(s) {
+function vistaServicioForm(s, comboNuevo) {
   const nuevo = !s;
-  s = s || { nombre: '', precio: '', dur: 30, desc: '', activo: true };
+  s = s || { nombre: '', precio: '', dur: 30, desc: '', activo: true, combo: !!comboNuevo, incluye: [] };
+  const simples = SV.filter(x => !x.combo && x.id !== s.id);
   $('#app').innerHTML = `
     <div class="top"><button class="link" id="volver">← Volver</button><button class="link" id="salir">Salir</button></div>
-    <h2>${nuevo ? 'Nuevo servicio' : 'Editar ' + esc(s.nombre)}</h2>
+    <h2>${nuevo ? (s.combo ? 'Nuevo combo' : 'Nuevo servicio') : 'Editar ' + esc(s.nombre)}</h2>
     <div class="card">
       <label for="s-nombre">Nombre</label><input id="s-nombre" maxlength="50" value="${esc(s.nombre)}" placeholder="Corte + barba">
       <div class="fila">
@@ -788,17 +800,36 @@ function vistaServicioForm(s) {
       </div>
       <label for="s-desc">Descripción (opcional)</label><input id="s-desc" maxlength="140" value="${esc(s.desc)}" placeholder="Incluye lavado y toalla caliente">
       <label class="switch"><input type="checkbox" id="s-activo" ${s.activo ? 'checked' : ''}> Activo (aparece en la web)</label>
+      <label class="switch"><input type="checkbox" id="s-combo" ${s.combo ? 'checked' : ''}> Es un combo (junta varios servicios con un precio especial)</label>
+    </div>
+    <div class="card" id="s-combo-card" ${s.combo ? '' : 'hidden'}>
+      <b>Servicios que trae el combo</b>
+      <div class="muted">El cliente lo reserva como uno solo. La duración y el precio son los de arriba.</div>
+      <div class="chks" id="s-inc">${simples.map(x => `<label><input type="checkbox" value="${esc(x.id)}" ${s.incluye.indexOf(x.id) >= 0 ? 'checked' : ''}><span>${esc(x.nombre)}${x.activo ? '' : ' (oculto)'}</span><small>${pesosC(x.precio)} · ${x.dur} min</small></label>`).join('') || '<p class="muted">Primero crea los servicios sueltos.</p>'}</div>
+      <div class="muted" id="s-suma" style="margin-top:8px"></div>
+      <button class="btn mini sec" id="s-usar" style="margin-top:8px">Usar la suma de las duraciones</button>
     </div>
     <div id="msg" class="err"></div>
-    <button class="btn" id="guardar">${nuevo ? 'Crear servicio' : 'Guardar cambios'}</button>
+    <button class="btn" id="guardar">${nuevo ? (s.combo ? 'Crear combo' : 'Crear servicio') : 'Guardar cambios'}</button>
     ${nuevo ? '' : '<button class="btn peligro" id="borrar">Borrar servicio</button>'}`;
   $('#volver').onclick = () => vistaServicios();
   $('#salir').onclick = () => salir();
+  const elegidos = () => [...document.querySelectorAll('#s-inc input:checked')].map(i => i.value);
+  const suma = () => {
+    const l = elegidos().map(id => simples.find(x => x.id === id)).filter(Boolean);
+    const p = l.reduce((t, x) => t + x.precio, 0), d = l.reduce((t, x) => t + x.dur, 0), precio = numero($('#s-precio').value);
+    $('#s-suma').innerHTML = l.length ? `Por separado: <b>${pesosC(p)}</b> · ${d} min${precio && p > precio ? ' · el cliente ahorra <b>' + pesosC(p - precio) + '</b>' : ''}` : 'Marca los servicios que trae.';
+    return d;
+  };
+  $('#s-combo').onchange = () => { $('#s-combo-card').hidden = !$('#s-combo').checked; suma(); };
+  $('#s-inc').onchange = suma; $('#s-precio').oninput = suma;
+  $('#s-usar').onclick = () => { const d = suma(); if (d) $('#s-dur').value = d; };
+  suma();
   $('#guardar').onclick = async () => {
     const b = $('#guardar'); b.disabled = true; $('#msg').textContent = '';
     try {
       const r = await api({ a: 'aGuardarServicio', token: S.token, id: nuevo ? '' : s.id, nombre: $('#s-nombre').value, precio: $('#s-precio').value,
-        dur: $('#s-dur').value, desc: $('#s-desc').value, activo: $('#s-activo').checked });
+        dur: $('#s-dur').value, desc: $('#s-desc').value, activo: $('#s-activo').checked, combo: $('#s-combo').checked, incluye: elegidos() });
       cargarServicios(r.texto);
     } catch (e) { b.disabled = false; $('#msg').textContent = e.message; }
   };
@@ -806,6 +837,79 @@ function vistaServicioForm(s) {
     if (!confirm('¿Borrar ' + s.nombre + '? Si tiene historial, solo se oculta.')) return;
     const b = $('#borrar'); b.disabled = true;
     try { const r = await api({ a: 'aBorrarServicio', token: S.token, id: s.id }); cargarServicios(r.texto); }
+    catch (e) { b.disabled = false; $('#msg').textContent = e.message; }
+  };
+}
+
+/* ---------- Planes (membresías) ---------- */
+let PL = null;
+async function cargarPlanes(msg) {
+  $('#app').innerHTML = nav('planes') + '<p class="muted" style="text-align:center;margin-top:24px">Cargando planes…</p>';
+  bindNav();
+  try { PL = await api({ a: 'aPlanes', token: S.token }); vistaPlanes(msg); }
+  catch (e) { if (S) { $('#app').innerHTML = nav('planes') + `<div class="err">${esc(e.message)}</div><button class="btn sec" id="re">Reintentar</button>`; bindNav(); $('#re').onclick = () => cargarPlanes(); } }
+}
+
+function vistaPlanes(msg) {
+  $('#app').innerHTML = nav('planes') + (msg ? `<div class="okmsg">${esc(msg)}</div>` : '') + `
+    <p class="muted">Membresías mensuales: el cliente paga una vez y cada servicio incluido queda en $0 hasta gastar sus usos. Se venden desde la hoja (menú Rous Barber → Vender membresía).</p>
+    <button class="btn" id="nuevo-p">+ Nuevo plan</button>
+    ${PL.planes.map(p => `<div class="card"><div class="barb"><div><b>${esc(p.nombre)}</b>${p.activo ? '' : '<span class="tag no">Oculto</span>'}
+      <div class="muted">${pesosC(p.precio)} · ${p.usos} ${p.usos === 1 ? 'uso' : 'usos'} · ${p.dias} días</div>
+      <div class="muted">Incluye: ${esc(p.servNombres.join(', ') || '—')}</div>
+      <div class="muted">${p.activas} ${p.activas === 1 ? 'membresía activa' : 'membresías activas'} · ${p.vendidas} vendidas</div></div>
+      <button class="btn mini sec" data-edp="${esc(p.id)}">Editar</button></div></div>`).join('') || '<p class="muted">Todavía no hay planes.</p>'}`;
+  bindNav();
+  $('#nuevo-p').onclick = () => vistaPlanForm(null);
+  document.querySelectorAll('[data-edp]').forEach(b => b.onclick = () => vistaPlanForm(PL.planes.find(p => p.id === b.dataset.edp)));
+}
+
+function vistaPlanForm(p) {
+  const nuevo = !p;
+  p = p || { nombre: '', usos: 4, precio: '', dias: 30, activo: true, servicios: [] };
+  $('#app').innerHTML = `
+    <div class="top"><button class="link" id="volver">← Volver</button><button class="link" id="salir">Salir</button></div>
+    <h2>${nuevo ? 'Nuevo plan' : 'Editar ' + esc(p.nombre)}</h2>
+    <div class="card">
+      <label for="p-nombre">Nombre</label><input id="p-nombre" maxlength="50" value="${esc(p.nombre)}" placeholder="Plan Full">
+      <div class="fila">
+        <div><label for="p-precio">Precio</label><input id="p-precio" inputmode="numeric" value="${esc(p.precio)}" placeholder="120000"></div>
+        <div><label for="p-usos">Usos</label><input id="p-usos" type="number" min="1" max="60" value="${esc(p.usos)}"></div>
+        <div><label for="p-dias">Vigencia (días)</label><input id="p-dias" type="number" min="1" max="366" value="${esc(p.dias)}"></div>
+      </div>
+      <label class="switch"><input type="checkbox" id="p-activo" ${p.activo ? 'checked' : ''}> Activo (aparece en la web y se puede vender)</label>
+    </div>
+    <div class="card">
+      <b>Servicios incluidos</b>
+      <div class="muted">Cada vez que el cliente use uno de estos, queda en $0 y se descuenta un uso.</div>
+      <div class="chks" id="p-serv">${PL.servicios.map(x => `<label><input type="checkbox" value="${esc(x.id)}" ${p.servicios.indexOf(x.id) >= 0 ? 'checked' : ''}><span>${esc(x.nombre)}${x.combo ? ' <span class="tag combo">Combo</span>' : ''}</span><small>${pesosC(x.precio)}</small></label>`).join('')}</div>
+      <div class="muted" id="p-valor" style="margin-top:8px"></div>
+    </div>
+    ${nuevo ? '' : '<p class="muted">Los cambios aplican a las membresías que se vendan desde ahora; las ya vendidas conservan sus usos y su vencimiento.</p>'}
+    <div id="msg" class="err"></div>
+    <button class="btn" id="guardar">${nuevo ? 'Crear plan' : 'Guardar cambios'}</button>
+    ${nuevo ? '' : '<button class="btn peligro" id="borrar">Borrar plan</button>'}`;
+  $('#volver').onclick = () => vistaPlanes();
+  $('#salir').onclick = () => salir();
+  const elegidos = () => [...document.querySelectorAll('#p-serv input:checked')].map(i => i.value);
+  const valor = () => {
+    const l = elegidos().map(id => PL.servicios.find(x => x.id === id)).filter(Boolean);
+    const max = l.length ? Math.max(...l.map(x => x.precio)) : 0, usos = Number($('#p-usos').value) || 0, precio = numero($('#p-precio').value);
+    $('#p-valor').innerHTML = l.length && usos ? `Si usa siempre el más caro: ${usos} × ${pesosC(max)} = <b>${pesosC(max * usos)}</b>${precio && max * usos > precio ? ' · ahorra hasta <b>' + pesosC(max * usos - precio) + '</b>' : ''}` : '';
+  };
+  $('#p-serv').onchange = valor; $('#p-usos').oninput = valor; $('#p-precio').oninput = valor; valor();
+  $('#guardar').onclick = async () => {
+    const b = $('#guardar'); b.disabled = true; $('#msg').textContent = '';
+    try {
+      const r = await api({ a: 'aGuardarPlan', token: S.token, id: nuevo ? '' : p.id, nombre: $('#p-nombre').value, precio: $('#p-precio').value,
+        usos: $('#p-usos').value, dias: $('#p-dias').value, activo: $('#p-activo').checked, servicios: elegidos() });
+      cargarPlanes(r.texto);
+    } catch (e) { b.disabled = false; $('#msg').textContent = e.message; }
+  };
+  if ($('#borrar')) $('#borrar').onclick = async () => {
+    if (!confirm('¿Borrar ' + p.nombre + '? Si ya se vendió, solo se oculta.')) return;
+    const b = $('#borrar'); b.disabled = true;
+    try { const r = await api({ a: 'aBorrarPlan', token: S.token, id: p.id }); cargarPlanes(r.texto); }
     catch (e) { b.disabled = false; $('#msg').textContent = e.message; }
   };
 }

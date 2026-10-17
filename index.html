@@ -98,6 +98,9 @@
   .puntos span.on { background: var(--acc); }
   .link { background: none; border: 0; color: var(--acc); cursor: pointer; padding: 10px 0 0; font-weight: 600; font-size: 14px; }
   .hidden { display: none !important; }
+  .combo { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--acc-txt); background: var(--acc); border-radius: 6px; padding: 1px 6px; vertical-align: 2px; }
+  .ahorro { color: var(--ok); font-size: 13px; font-weight: 600; }
+  .opt .meta s { color: var(--sub); font-weight: 400; }
   @media (prefers-reduced-motion: no-preference) { .vista { animation: entra .18s ease-out; } @keyframes entra { from { opacity: 0; transform: translateY(4px); } } }
 </style>
 </head>
@@ -260,7 +263,7 @@ function vistaReservar() {
   if (barb) html += '<button class="link" id="cambiar">← Ver todos los barberos</button>' + (barb.galeria ? '<div id="galeria" class="carrusel">' + galeriaHtml(barb) + '</div>' : '');
   if (barb) {
     html += '<h2 id="paso2">2 · Servicio</h2>' + (servs.length ? '<div class="grid">' + servs.map(s =>
-      `<button class="opt ${s.id === R.servicio ? 'on' : ''}" data-s="${esc(s.id)}"><span class="opt-txt"><b>${esc(s.nombre)}</b>${s.desc ? `<span class="desc">${esc(s.desc)}</span>` : ''}</span><span class="meta">${pesos(s.precio)} · ${s.dur} min</span></button>`).join('') + '</div>'
+      `<button class="opt ${s.id === R.servicio ? 'on' : ''}" data-s="${esc(s.id)}"><span class="opt-txt"><b>${esc(s.nombre)}${s.combo ? ' <span class="combo">Combo</span>' : ''}</b>${s.combo ? `<span class="desc">Incluye: ${esc(s.incluyeNombres.join(' + '))}</span>` : ''}${s.desc ? `<span class="desc">${esc(s.desc)}</span>` : ''}${s.combo && s.suelto > s.precio ? `<span class="ahorro">Ahorras ${pesos(s.suelto - s.precio)}</span>` : ''}</span><span class="meta">${s.combo && s.suelto > s.precio ? `<s>${pesos(s.suelto)}</s> ` : ''}${pesos(s.precio)} · ${s.dur} min</span></button>`).join('') + '</div>'
       : '<p class="muted">Este barbero todavía no tiene servicios disponibles.</p>');
   }
   if (serv) {
