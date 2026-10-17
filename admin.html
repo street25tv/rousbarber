@@ -63,6 +63,10 @@
   .chks label small { color: var(--sub); white-space: nowrap; }
   .chks label:has(input:checked) { border-color: var(--acc); }
   .tag.combo { background: #2a2110; color: var(--acc); }
+  .cod { font-family: ui-monospace, Menlo, monospace; letter-spacing: 1px; }
+  .filtros { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .filtros button { border: 1px solid var(--line); background: var(--card); color: var(--sub); border-radius: 999px; padding: 6px 12px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  .filtros button.on { background: var(--acc); color: var(--acc-txt); border-color: var(--acc); }
   .exito { border-color: #1f6b43; background: #10261a; }
   .grande { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 40px; letter-spacing: 3px; color: var(--acc); }
   .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -224,11 +228,12 @@ function nav(activa) {
       <button class="tab ${activa === 'finanzas' ? 'on' : ''}" data-nav="finanzas">Finanzas</button>
       <button class="tab ${activa === 'servicios' ? 'on' : ''}" data-nav="servicios">Servicios</button>
       <button class="tab ${activa === 'planes' ? 'on' : ''}" data-nav="planes">Planes</button>
+      <button class="tab ${activa === 'bonos' ? 'on' : ''}" data-nav="bonos">Bonos</button>
       <button class="tab ${activa === 'barberos' ? 'on' : ''}" data-nav="barberos">Barberos</button>
     </div><button class="link" id="salir">Salir</button></div>`;
 }
 function bindNav() {
-  const ir = { agenda: cargarAgenda, facturar: cargarFacturacion, productos: cargarProductos, finanzas: cargarFinanzas, servicios: cargarServicios, planes: cargarPlanes, barberos: cargar };
+  const ir = { agenda: cargarAgenda, facturar: cargarFacturacion, productos: cargarProductos, finanzas: cargarFinanzas, servicios: cargarServicios, planes: cargarPlanes, bonos: cargarBonos, barberos: cargar };
   document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => (ir[b.dataset.nav] || cargarAgenda)());
   if ($('#salir')) $('#salir').onclick = () => salir();
 }
@@ -571,6 +576,8 @@ async function vistaFactura(c, volver) {
     ${c ? `<div class="card">
       <b>${esc(c.cliente)}</b>
       <div class="muted">${esc(c.servicio)} · ${esc(fechaCorta(c.fecha))}, ${esc(c.hora12)} · ${esc(c.estado)}</div>
+      ${info.bono ? `<div class="okmsg">🎁 Esta cita trae el bono <b class="cod">${esc(info.bono.codigo)}</b> (${esc(info.bono.servicio)}).</div>` : ''}
+      <label for="k-bono">Bono de regalo (código, opcional)</label><input id="k-bono" class="cod" placeholder="RB-XXXXXX" value="${esc(info.bono ? info.bono.codigo : '')}" autocapitalize="characters">
       ${info.membresia ? `<label class="switch"><input type="checkbox" id="k-memb"> Usar ${esc(info.membresia.plan)} (quedan ${info.membresia.restantes}, vence el ${esc(info.membresia.vence)})</label>` : ''}
       <label for="k-barb">Lo atendió</label>
       <select id="k-barb">${info.barberos.map(b => `<option value="${esc(b.id)}" ${b.id === c.barberoId ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('')}</select>
@@ -604,19 +611,21 @@ async function vistaFactura(c, volver) {
   const prod = id => prods.find(p => p.id === id);
   const resumen = () => {
     const usar = $('#k-memb') && $('#k-memb').checked;
-    const serv = c ? (usar ? 0 : numero($('#k-valor').value)) : 0;
+    const bono = c && $('#k-bono').value.trim();
+    const serv = c ? (usar || bono ? 0 : numero($('#k-valor').value)) : 0;
     const prop = c ? numero($('#k-prop').value) : 0;
     const vp = lineas.reduce((s, l) => s + prod(l.id).precio * l.cant, 0);
     $('#k-lineas').innerHTML = lineas.map((l, i) => `<div class="cita-top" style="margin-top:8px"><span>${esc(prod(l.id).nombre)} × ${l.cant}</span>
       <span>${pesosC(prod(l.id).precio * l.cant)} <button class="btn mini sec" data-quitar="${i}" aria-label="Quitar">✕</button></span></div>`).join('');
     $('#k-lineas').querySelectorAll('[data-quitar]').forEach(b => b.onclick = () => { lineas.splice(Number(b.dataset.quitar), 1); resumen(); });
-    $('#k-resumen').innerHTML = (c ? `<div><span>Servicio${usar ? ' (membresía)' : ''}</span><b>${pesosC(serv)}</b></div>` : '') +
+    if (c) $('#k-valor').disabled = !!(usar || bono);
+    $('#k-resumen').innerHTML = (c ? `<div><span>Servicio${usar ? ' (membresía)' : bono ? ' (bono de regalo)' : ''}</span><b>${pesosC(serv)}</b></div>` : '') +
       `<div><span>Productos</span><b>${pesosC(vp)}</b></div>` + (c ? `<div><span>Propina</span><b>${pesosC(prop)}</b></div>` : '') +
       `<div class="fuerte"><span>Total a cobrar</span><b>${pesosC(serv + vp + prop)}</b></div>`;
     return serv + vp + prop;
   };
   if (c) {
-    $('#k-valor').oninput = resumen; $('#k-prop').oninput = resumen;
+    $('#k-valor').oninput = resumen; $('#k-prop').oninput = resumen; $('#k-bono').oninput = resumen;
     if ($('#k-memb')) $('#k-memb').onchange = e => { $('#k-valor').disabled = e.target.checked; resumen(); };
   }
   if ($('#k-agregar')) $('#k-agregar').onclick = () => {
@@ -636,7 +645,7 @@ async function vistaFactura(c, volver) {
     const b = $('#confirmar'); b.disabled = true; b.textContent = 'Guardando…'; $('#msg').textContent = '';
     try {
       const p = { a: 'aFacturar', token: S.token, productos: lineas, medio: $('#k-medio').value };
-      if (c) Object.assign(p, { cita: c.id, barbero: $('#k-barb').value, valor: $('#k-valor').value, propina: $('#k-prop').value, usarMembresia: !!($('#k-memb') && $('#k-memb').checked) });
+      if (c) Object.assign(p, { cita: c.id, barbero: $('#k-barb').value, valor: $('#k-valor').value, propina: $('#k-prop').value, usarMembresia: !!($('#k-memb') && $('#k-memb').checked), bono: $('#k-bono').value.trim() });
       else Object.assign(p, { nombre: $('#k-nombre').value, tel: $('#k-tel').value });
       const r = await api(p);
       vistaFacturaLista(r, regresar);
@@ -838,6 +847,123 @@ function vistaServicioForm(s, comboNuevo) {
     const b = $('#borrar'); b.disabled = true;
     try { const r = await api({ a: 'aBorrarServicio', token: S.token, id: s.id }); cargarServicios(r.texto); }
     catch (e) { b.disabled = false; $('#msg').textContent = e.message; }
+  };
+}
+
+/* ---------- Bonos de regalo ---------- */
+let BN = null, BF = 'Pendiente de pago';
+const ESTADO_BONO_CLASE = { 'Pendiente de pago': 'pend', 'Activo': 'si', 'Usado': 'fin', 'Vencido': 'no', 'Anulado': 'no' };
+async function cargarBonos(msg, wa, waPara) {
+  $('#app').innerHTML = nav('bonos') + '<p class="muted" style="text-align:center;margin-top:24px">Cargando bonos…</p>';
+  bindNav();
+  try { BN = await api({ a: 'aBonos', token: S.token }); if (BF === 'Pendiente de pago' && !BN.resumen.pendientes) BF = 'Activo'; vistaBonos(msg, wa, waPara); }
+  catch (e) { if (S) { $('#app').innerHTML = nav('bonos') + `<div class="err">${esc(e.message)}</div><button class="btn sec" id="re">Reintentar</button>`; bindNav(); $('#re').onclick = () => cargarBonos(); } }
+}
+
+function vistaBonos(msg, wa, waPara) {
+  const r = BN.resumen;
+  const filtros = ['Pendiente de pago', 'Activo', 'Usado', 'Vencido', 'Anulado', 'Todos'];
+  const lista = BN.bonos.filter(b => BF === 'Todos' || b.estado === BF);
+  $('#app').innerHTML = nav('bonos') + (msg ? `<div class="okmsg">${esc(msg)}</div>` : '') +
+    (wa ? `<a class="btn wa" target="_blank" rel="noopener" href="${esc(wa)}">Enviar el bono al comprador por WhatsApp</a>` : '') +
+    (waPara ? `<a class="btn wa" target="_blank" rel="noopener" href="${esc(waPara)}">Enviarlo directo a quien lo recibe</a>` : '') + `
+    <div class="kpis">
+      <div class="kpi acc"><span>Por cobrar</span><b>${r.pendientes}</b><small>solicitudes web</small></div>
+      <div class="kpi"><span>Activos</span><b>${r.activos}</b><small>${pesosC(r.valorActivos)} en servicios por prestar</small></div>
+    </div>
+    <button class="btn" id="nuevo-b">+ Vender bono en el local</button>
+    <label for="b-buscar">Buscar</label><input id="b-buscar" placeholder="Código, nombre o WhatsApp">
+    <div class="filtros">${filtros.map(f => `<button data-bf="${esc(f)}" class="${f === BF ? 'on' : ''}">${esc(f)}${f === 'Pendiente de pago' && r.pendientes ? ' (' + r.pendientes + ')' : ''}</button>`).join('')}</div>
+    <div id="b-lista">${lista.map(filaBono).join('') || '<p class="muted">No hay bonos en este estado.</p>'}</div>`;
+  bindNav();
+  $('#nuevo-b').onclick = () => vistaBonoForm();
+  document.querySelectorAll('[data-bf]').forEach(b => b.onclick = () => { BF = b.dataset.bf; vistaBonos(); });
+  $('#b-buscar').oninput = e => {
+    const q = e.target.value.trim().toLowerCase().replace(/\s+/g, '');
+    const l = q ? BN.bonos.filter(b => [b.codigo, b.id, b.comprador, b.para, b.telComprador, b.telPara].join(' ').toLowerCase().replace(/\s+/g, '').indexOf(q) >= 0) : lista;
+    $('#b-lista').innerHTML = l.map(filaBono).join('') || '<p class="muted">Sin resultados.</p>';
+    bindBonos();
+  };
+  bindBonos();
+}
+
+function filaBono(b) {
+  const acc = [];
+  if (b.estado === 'Pendiente de pago') acc.push(`<button class="btn mini" data-bconf="${esc(b.id)}">Confirmar pago</button>`);
+  if (b.estado === 'Activo' && b.telComprador) acc.push(`<a class="btn mini sec" target="_blank" rel="noopener" href="${esc(waLink(b.telComprador, 'Hola ' + b.comprador.split(' ')[0] + ', este es tu bono de regalo para ' + b.para + ': ' + b.servicio + '. Código ' + b.codigo + '. Reenvíaselo: ' + location.href.replace(/admin\.html.*$/, '') + '?bono=' + b.codigo))}">Enviar al comprador</a>`);
+  if (b.estado === 'Pendiente de pago' && b.telComprador) acc.push(`<a class="btn mini sec" target="_blank" rel="noopener" href="${esc(waLink(b.telComprador, 'Hola ' + b.comprador.split(' ')[0] + ', recibimos tu solicitud de bono ' + b.id + ' (' + b.servicio + ', ' + pesosC(b.valor) + '). '))}">WhatsApp</a>`);
+  if (b.estado === 'Pendiente de pago' || b.estado === 'Activo' || b.estado === 'Vencido') acc.push(`<button class="btn mini peligro" data-banul="${esc(b.id)}">Anular</button>`);
+  return `<div class="cita">
+    <div class="cita-top"><b>${esc(b.servicio)} · ${pesosC(b.valor)}</b><span class="tag ${ESTADO_BONO_CLASE[b.estado] || ''}">${esc(b.estado)}</span></div>
+    <div>Para <b>${esc(b.para)}</b> · de ${esc(b.comprador)}${b.telComprador ? ' (' + esc(b.telComprador) + ')' : ''}</div>
+    <div class="muted"><span class="cod">${esc(b.codigo)}</span> · ${esc(b.id)} · ${esc(b.origen)} · ${esc(b.creado)}${b.vence && b.estado !== 'Pendiente de pago' ? ' · vence ' + esc(b.vence) : ''}${b.medio ? ' · ' + esc(b.medio) : ''}</div>
+    ${b.mensaje ? `<div class="muted">“${esc(b.mensaje)}”</div>` : ''}
+    ${b.cita ? `<div class="muted">Apartado para la cita ${esc(b.cita)} (${esc(b.citaTxt)})</div>` : ''}
+    ${b.estado === 'Usado' ? `<div class="muted">Usado el ${esc(b.usado)}${b.factura ? ' · factura ' + esc(b.factura) : ''}</div>` : ''}
+    ${acc.length ? `<div class="acciones">${acc.join('')}</div>` : ''}
+  </div>`;
+}
+
+function bindBonos() {
+  document.querySelectorAll('[data-bconf]').forEach(b => b.onclick = () => vistaConfirmarBono(BN.bonos.find(x => x.id === b.dataset.bconf)));
+  document.querySelectorAll('[data-banul]').forEach(b => b.onclick = async () => {
+    const x = BN.bonos.find(y => y.id === b.dataset.banul);
+    const motivo = prompt('¿Anular el bono ' + x.codigo + ' de ' + x.para + '? Escribe el motivo:');
+    if (motivo === null) return;
+    b.disabled = true;
+    try { const r = await api({ a: 'aAnularBono', token: S.token, id: x.id, motivo }); cargarBonos(r.texto); }
+    catch (e) { b.disabled = false; alert(e.message); }
+  });
+}
+
+function vistaConfirmarBono(b) {
+  $('#app').innerHTML = `
+    <div class="top"><button class="link" id="volver">← Volver</button><button class="link" id="salir">Salir</button></div>
+    <h2>Confirmar pago · ${esc(b.id)}</h2>
+    <div class="card">
+      <b>${esc(b.servicio)} · ${pesosC(b.valor)}</b>
+      <div class="muted">Para ${esc(b.para)} · de ${esc(b.comprador)} (${esc(b.telComprador)})</div>
+      ${b.mensaje ? `<div class="muted">“${esc(b.mensaje)}”</div>` : ''}
+      <label for="cb-medio">¿Cómo pagó?</label><select id="cb-medio">${BN.medios.map(m => `<option>${esc(m)}</option>`).join('')}</select>
+      <p class="muted">Revisa el comprobante antes de confirmar. El bono queda activo ${BN.vigencia} días y el pago entra en la caja de hoy.</p>
+    </div>
+    <div id="msg" class="err"></div>
+    <button class="btn" id="guardar">Confirmar pago y activar</button>`;
+  $('#volver').onclick = () => vistaBonos();
+  $('#salir').onclick = () => salir();
+  $('#guardar').onclick = async () => {
+    const x = $('#guardar'); x.disabled = true; $('#msg').textContent = '';
+    try { const r = await api({ a: 'aConfirmarBono', token: S.token, id: b.id, medio: $('#cb-medio').value }); BF = 'Activo'; cargarBonos(r.texto, r.wa, r.waPara); }
+    catch (e) { x.disabled = false; $('#msg').textContent = e.message; }
+  };
+}
+
+function vistaBonoForm() {
+  $('#app').innerHTML = `
+    <div class="top"><button class="link" id="volver">← Volver</button><button class="link" id="salir">Salir</button></div>
+    <h2>Vender bono de regalo</h2>
+    <div class="card">
+      <label for="vb-serv">Servicio que se regala</label>
+      <select id="vb-serv">${BN.servicios.map(x => `<option value="${esc(x.id)}">${esc(x.nombre)}${x.combo ? ' (combo)' : ''} · ${pesosC(x.precio)}</option>`).join('')}</select>
+      <label for="vb-para">Para (quien recibe)</label><input id="vb-para" maxlength="60">
+      <label for="vb-telp">WhatsApp de quien recibe (opcional)</label><input id="vb-telp" type="tel" inputmode="numeric" placeholder="300 123 4567">
+      <label for="vb-msg">Mensaje (opcional)</label><input id="vb-msg" maxlength="140" placeholder="¡Feliz cumpleaños!">
+      <label for="vb-comp">De (quien compra)</label><input id="vb-comp" maxlength="60">
+      <label for="vb-telc">WhatsApp de quien compra</label><input id="vb-telc" type="tel" inputmode="numeric" placeholder="300 123 4567">
+      <label for="vb-medio">Medio de pago</label><select id="vb-medio">${BN.medios.map(m => `<option>${esc(m)}</option>`).join('')}</select>
+      <p class="muted">Queda activo ${BN.vigencia} días. El pago entra en la caja de hoy.</p>
+    </div>
+    <div id="msg" class="err"></div>
+    <button class="btn" id="guardar">Cobrar y crear bono</button>`;
+  $('#volver').onclick = () => vistaBonos();
+  $('#salir').onclick = () => salir();
+  $('#guardar').onclick = async () => {
+    const x = $('#guardar'); x.disabled = true; $('#msg').textContent = '';
+    try {
+      const r = await api({ a: 'aCrearBono', token: S.token, servicio: $('#vb-serv').value, para: $('#vb-para').value, telPara: $('#vb-telp').value,
+        mensaje: $('#vb-msg').value, comprador: $('#vb-comp').value, telComprador: $('#vb-telc').value, medio: $('#vb-medio').value });
+      BF = 'Activo'; cargarBonos(r.texto, r.wa, r.waPara);
+    } catch (e) { x.disabled = false; $('#msg').textContent = e.message; }
   };
 }
 

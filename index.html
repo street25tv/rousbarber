@@ -98,6 +98,21 @@
   .puntos span.on { background: var(--acc); }
   .link { background: none; border: 0; color: var(--acc); cursor: pointer; padding: 10px 0 0; font-weight: 600; font-size: 14px; }
   .hidden { display: none !important; }
+  .regalo { position: relative; overflow: hidden; border-radius: 18px; padding: 22px 20px; margin-top: 12px; border: 1px solid #6b5420;
+            background: radial-gradient(120% 90% at 85% 0%, #3a2a0c 0%, #14110a 55%, #0b0b0d 100%); }
+  .regalo .marca { display: flex; align-items: center; gap: 10px; }
+  .regalo .marca img { width: 44px; height: 44px; border-radius: 10px; }
+  .regalo .marca span { font-family: 'Bebas Neue', Impact, sans-serif; letter-spacing: 2px; color: var(--acc); font-size: 18px; }
+  .regalo .para { font-size: 13px; color: var(--sub); margin-top: 18px; }
+  .regalo .para b { color: var(--txt); font-size: 20px; display: block; margin-top: 2px; }
+  .regalo .serv { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 34px; letter-spacing: 1px; color: var(--acc); line-height: 1.05; margin-top: 12px; }
+  .regalo .msg { font-style: italic; margin-top: 10px; color: #efe6cf; }
+  .regalo .pie { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 12px; border-top: 1px dashed #6b5420; font-size: 13px; color: var(--sub); }
+  .regalo .cod { font-family: ui-monospace, Menlo, monospace; color: var(--txt); font-size: 15px; letter-spacing: 1px; }
+  .banner-bono { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #6b5420; background: #1d170b; border-radius: 12px; padding: 10px 12px; margin-top: 16px; font-size: 14px; }
+  .banner-bono button { background: none; border: 0; color: var(--sub); text-decoration: underline; cursor: pointer; font-size: 13px; }
+  textarea { width: 100%; background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 13px 14px; outline: none; font: inherit; color: inherit; resize: vertical; min-height: 70px; }
+  textarea:focus { border-color: var(--acc); }
   .combo { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--acc-txt); background: var(--acc); border-radius: 6px; padding: 1px 6px; vertical-align: 2px; }
   .ahorro { color: var(--ok); font-size: 13px; font-weight: 600; }
   .opt .meta s { color: var(--sub); font-weight: 400; }
@@ -112,15 +127,17 @@
 <nav><div class="wrap">
   <button data-tab="reservar" class="on">Reservar</button>
   <button data-tab="micita">Mi cita</button>
+  <button data-tab="regalar">Regalar</button>
   <button data-tab="planes">Planes</button>
 </div></nav>
 
 <main class="wrap">
   <section id="v-reservar" class="vista"><div class="cargando">Cargando…</div></section>
   <section id="v-micita" class="vista hidden"></section>
+  <section id="v-regalar" class="vista hidden"></section>
   <section id="v-planes" class="vista hidden"></section>
 
-  <div class="aviso"><b>Aviso:</b> Rous Barber nunca te pide pagos por adelantado ni datos de tu banco. Pagas en la barbería. Si alguien te escribe desde otro número pidiendo dinero, no es nosotros.</div>
+  <div class="aviso"><b>Aviso:</b> Rous Barber nunca te pide datos de tu banco. Las citas se pagan en la barbería; solo los bonos de regalo se pagan antes, y únicamente por los datos que aparecen aquí. Si alguien te escribe desde otro número pidiendo dinero, no es nosotros.</div>
   <div class="info" id="info"></div>
 </main>
 <a class="soporte hidden" id="soporte" target="_blank" rel="noopener">WhatsApp</a>
@@ -138,7 +155,7 @@ const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } 
 const leerLS = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 
 let D = null;               // datos del negocio
-const R = { barbero: null, servicio: null, fecha: null, hora: null };
+const R = { barbero: null, servicio: null, fecha: null, hora: null, bono: null };
 
 /* Llamadas a la API con reintentos (tras publicar, Google responde error unos minutos). */
 async function api(params, post) {
@@ -170,7 +187,8 @@ function hora12(h) { const [a, b] = h.split(':').map(Number); return (a % 12 || 
 /* ---------- Pestañas ---------- */
 function tab(nombre) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === nombre));
-  ['reservar', 'micita', 'planes'].forEach(t => $('#v-' + t).classList.toggle('hidden', t !== nombre));
+  ['reservar', 'micita', 'regalar', 'planes'].forEach(t => $('#v-' + t).classList.toggle('hidden', t !== nombre));
+  if (nombre === 'regalar') vistaRegalar();
   if (nombre === 'micita' && !$('#v-micita').innerHTML) vistaMiCita();
   if (nombre === 'planes') vistaPlanes();
   window.scrollTo({ top: 0 });
@@ -246,12 +264,18 @@ function iniciarCarrusel(pos) {
 
 function vistaReservar() {
   const v = $('#v-reservar');
+  const hace = b => (b.servicios || []).indexOf(R.bono ? R.bono.servicioId : '') >= 0;
+  if (R.bono && R.barbero && !hace(D.barberos.find(b => b.id === R.barbero) || {})) { R.barbero = null; R.fecha = null; R.hora = null; }
   const barb = D.barberos.find(b => b.id === R.barbero);
-  const servs = barb ? D.servicios.filter(s => (barb.servicios || []).indexOf(s.id) >= 0) : [];
+  let servs = barb ? D.servicios.filter(s => (barb.servicios || []).indexOf(s.id) >= 0) : [];
+  if (R.bono) { servs = servs.filter(s => s.id === R.bono.servicioId); if (barb) R.servicio = R.bono.servicioId; }
   if (barb && R.servicio && !servs.some(s => s.id === R.servicio)) { R.servicio = null; R.hora = null; }
   const serv = servs.find(s => s.id === R.servicio);
-  const lista = barb ? [barb] : D.barberos;
-  let html = '<h2>1 · Barbero</h2><div class="grid">' + lista.map(b => `
+  const lista = barb ? [barb] : (R.bono ? D.barberos.filter(hace) : D.barberos);
+  let html = R.bono
+    ? `<div class="banner-bono"><span>🎁 Reservando con el bono <b>${esc(R.bono.codigo)}</b>: ${esc(R.bono.servicio)}</span><button id="quitar-bono">Quitar</button></div>`
+    : '<button class="link" id="tengo-bono">¿Tienes un bono de regalo?</button><div id="caja-bono"></div>';
+  html += '<h2>1 · Barbero</h2><div class="grid">' + lista.map(b => `
     <div class="barb ${b.id === R.barbero ? 'on' : ''}" data-b="${esc(b.id)}" role="button" tabindex="0" aria-pressed="${b.id === R.barbero}">
       ${fotoHtml(b)}
       <div class="datos">
@@ -286,17 +310,26 @@ function vistaReservar() {
         <div><span>Dónde</span><b>${esc(barb.direccion || D.direccion || '')}</b></div>
         <div><span>Servicio</span><b>${esc(serv.nombre)}</b></div>
         <div><span>Cuándo</span><b>${esc(fechaLarga(R.fecha))}, ${hora12(R.hora)}</b></div>
-        <div><span>Precio</span><b>${pesos(serv.precio)}</b></div>
+        <div><span>Precio</span><b>${R.bono ? 'Bono de regalo · $0' : pesos(serv.precio)}</b></div>
       </div>
       <label for="nombre">Nombre</label><input id="nombre" autocomplete="name" value="${esc(yo.nombre || '')}" placeholder="Tu nombre">
       <label for="tel">WhatsApp</label><input id="tel" type="tel" inputmode="numeric" autocomplete="tel" value="${esc(yo.tel || '')}" placeholder="300 123 4567">
       <div id="err" class="err"></div>
       <button class="btn" id="confirmar">Confirmar reserva</button>
-      <p class="muted">Pagas en la barbería. ${esc(D.advertencia)}</p>`;
+      <p class="muted">${R.bono ? 'El servicio ya está pagado con tu bono.' : 'Pagas en la barbería.'} ${esc(D.advertencia)}</p>`;
   }
   const pistaPrev = $('#pista'), posPrev = pistaPrev ? pistaPrev.scrollLeft : 0;
   v.innerHTML = html;
   iniciarCarrusel(posPrev);
+  if ($('#quitar-bono')) $('#quitar-bono').onclick = () => { R.bono = null; R.servicio = null; R.hora = null; vistaReservar(); };
+  if ($('#tengo-bono')) $('#tengo-bono').onclick = () => {
+    $('#caja-bono').innerHTML = `<label for="cod-bono">Código del bono</label><input id="cod-bono" placeholder="RB-XXXXXX" autocapitalize="characters">
+      <div id="err-bono" class="err"></div><button class="btn sec" id="usar-bono">Usar bono</button>`;
+    $('#usar-bono').onclick = async () => {
+      const b = $('#usar-bono'); b.disabled = true; $('#err-bono').textContent = '';
+      try { await aplicarBono($('#cod-bono').value); } catch (e) { b.disabled = false; $('#err-bono').textContent = e.message; }
+    };
+  };
   if ($('#cambiar')) $('#cambiar').onclick = () => { R.barbero = null; R.servicio = null; R.fecha = null; R.hora = null; vistaReservar(); };
   v.querySelectorAll('[data-b]').forEach(el => {
     const elegir = () => {
@@ -345,7 +378,8 @@ async function confirmar() {
   if (tel.length < 10) return ($('#err').textContent = 'Escribe tu número de WhatsApp (10 dígitos).');
   const btn = $('#confirmar'); btn.disabled = true; btn.textContent = 'Reservando…'; $('#err').textContent = '';
   try {
-    const r = await api({ a: 'reservar', nombre, tel, servicio: R.servicio, barbero: R.barbero, fecha: R.fecha, hora: R.hora }, true);
+    const r = await api({ a: 'reservar', nombre, tel, servicio: R.servicio, barbero: R.barbero, fecha: R.fecha, hora: R.hora, bono: R.bono ? R.bono.codigo : '' }, true);
+    R.bono = null;
     guardar('cliente', { nombre, tel });
     guardar('ultimaCita', { cita: r.cita, t: r.tel });
     const enlace = location.origin + location.pathname + '?cita=' + r.cita + '&t=' + r.tel;
@@ -360,7 +394,7 @@ async function confirmar() {
           <div><span>Barbero</span><b>${esc(r.barbero)}</b></div>
           <div><span>Dónde</span><b>${esc(r.direccion || D.direccion || '')}</b></div>
           <div><span>Cuándo</span><b>${esc(r.fechaTxt)}, ${esc(r.hora12)}</b></div>
-          <div><span>Precio</span><b>${pesos(r.precio)}</b></div>
+          <div><span>Precio</span><b>${r.bono ? 'Bono ' + esc(r.bono) + ' · $0' : pesos(r.precio)}</b></div>
         </div>
       </div>
       ${r.mapa ? `<a class="btn sec" target="_blank" rel="noopener" href="${esc(r.mapa)}">Cómo llegar (Google Maps)</a>` : ''}
@@ -421,6 +455,92 @@ async function consultar() {
   } catch (e) { $('#mc-res').innerHTML = ''; $('#mc-err').textContent = e.message; }
 }
 
+/* ---------- Bonos de regalo ---------- */
+async function aplicarBono(codigo) {
+  const c = String(codigo || '').trim().toUpperCase();
+  if (!c) throw new Error('Escribe el código del bono.');
+  const b = await api({ a: 'bono', codigo: c });
+  if (b.estado !== 'Activo') throw new Error('Este bono está ' + b.estado.toLowerCase() + '.');
+  if (b.apartado) throw new Error('Este bono ya tiene una cita reservada. Consúltala en "Mi cita".');
+  if (!D.servicios.some(s => s.id === b.servicioId)) throw new Error('El servicio de este bono ya no está disponible. Escríbenos por WhatsApp.');
+  R.bono = b; R.servicio = null; R.fecha = null; R.hora = null;
+  tab('reservar'); vistaReservar();
+}
+
+function tarjetaBono(b) {
+  return `<div class="regalo">
+    <div class="marca"><img src="image.jpg" alt=""><span>BONO DE REGALO</span></div>
+    <div class="para">Para<b>${esc(b.para || 'ti')}</b></div>
+    <div class="serv">${esc(b.servicio)}</div>
+    ${b.mensaje ? `<div class="msg">“${esc(b.mensaje)}”</div>` : ''}
+    ${b.de ? `<div class="muted" style="margin-top:8px">De parte de ${esc(b.de)}</div>` : ''}
+    <div class="pie"><span>Código <span class="cod">${esc(b.codigo)}</span></span><span>${b.vence ? 'Válido hasta el ' + esc(b.vence) : ''}</span></div>
+  </div>`;
+}
+
+async function vistaBono(codigo) {
+  tab('reservar');
+  const v = $('#v-reservar');
+  v.innerHTML = '<div class="cargando">Abriendo tu regalo…</div>';
+  try {
+    const b = await api({ a: 'bono', codigo: codigo });
+    const ok = b.estado === 'Activo' && !b.apartado;
+    v.innerHTML = '<h2>Tienes un regalo 🎁</h2>' + tarjetaBono(b) +
+      (ok ? '<button class="btn" id="reservar-bono">Reservar con este bono</button>'
+        : `<p class="card muted">${b.apartado ? 'Este bono ya tiene una cita reservada. Consúltala en "Mi cita".' : 'Este bono está ' + esc(b.estado.toLowerCase()) + '.'}</p>`) +
+      '<button class="btn sec" id="ver-web">Ver la barbería</button>';
+    if ($('#reservar-bono')) $('#reservar-bono').onclick = async () => { try { await aplicarBono(b.codigo); } catch (e) { alert(e.message); } };
+    $('#ver-web').onclick = () => vistaReservar();
+  } catch (e) {
+    v.innerHTML = `<div class="err">${esc(e.message)}</div><button class="btn sec" id="ver-web">Reservar sin bono</button>`;
+    $('#ver-web').onclick = () => vistaReservar();
+  }
+}
+
+const G = { servicio: null };
+function vistaRegalar() {
+  const v = $('#v-regalar');
+  const yo = leerLS('cliente') || {};
+  const servs = D.servicios;
+  v.innerHTML = `<h2>Regala un servicio <small>tú lo pagas, otra persona lo disfruta</small></h2>
+    <p class="muted">Elige el servicio, escribe para quién es y envía la solicitud. Cuando la barbería confirme tu pago te damos el bono con su código para que se lo envíes.</p>
+    <div class="grid">${servs.map(s => `<button class="opt ${s.id === G.servicio ? 'on' : ''}" data-g="${esc(s.id)}"><span class="opt-txt"><b>${esc(s.nombre)}${s.combo ? ' <span class="combo">Combo</span>' : ''}</b>${s.combo ? `<span class="desc">Incluye: ${esc(s.incluyeNombres.join(' + '))}</span>` : (s.desc ? `<span class="desc">${esc(s.desc)}</span>` : '')}</span><span class="meta">${pesos(s.precio)}</span></button>`).join('')}</div>
+    ${G.servicio ? `
+      <h2>¿Para quién es?</h2>
+      <label for="g-para">Nombre de quien recibe</label><input id="g-para" maxlength="60" placeholder="Ej.: Carlos">
+      <label for="g-telp">WhatsApp de quien recibe (opcional)</label><input id="g-telp" type="tel" inputmode="numeric" placeholder="300 123 4567">
+      <label for="g-msg">Mensaje (opcional)</label><textarea id="g-msg" maxlength="140" placeholder="¡Feliz cumpleaños! Ponte guapo."></textarea>
+      <h2>Tus datos</h2>
+      <label for="g-nombre">Tu nombre</label><input id="g-nombre" autocomplete="name" value="${esc(yo.nombre || '')}">
+      <label for="g-tel">Tu WhatsApp</label><input id="g-tel" type="tel" inputmode="numeric" autocomplete="tel" value="${esc(yo.tel || '')}" placeholder="300 123 4567">
+      <div id="g-err" class="err"></div>
+      <button class="btn" id="g-enviar">Pedir bono de regalo</button>
+      <p class="muted">El bono vale para ${esc((servs.find(s => s.id === G.servicio) || {}).nombre || '')}. Lo pagas por adelantado y queda activo cuando la barbería confirme tu pago.</p>` : ''}`;
+  v.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { G.servicio = b.dataset.g; vistaRegalar(); setTimeout(() => { const e = $('#g-para'); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50); });
+  if ($('#g-enviar')) $('#g-enviar').onclick = async () => {
+    const b = $('#g-enviar'); b.disabled = true; b.textContent = 'Enviando…'; $('#g-err').textContent = '';
+    try {
+      const r = await api({ a: 'regalar', servicio: G.servicio, para: $('#g-para').value, telPara: $('#g-telp').value, mensaje: $('#g-msg').value,
+        comprador: $('#g-nombre').value, telComprador: $('#g-tel').value }, true);
+      guardar('cliente', { nombre: $('#g-nombre').value.trim(), tel: $('#g-tel').value.replace(/\D/g, '') });
+      G.servicio = null;
+      v.innerHTML = `<h2>¡Solicitud recibida!</h2>
+        <div class="card ok"><div class="muted">Número de solicitud</div><div class="codigo">${esc(r.id)}</div>
+          <div class="resumen" style="margin-top:8px">
+            <div><span>Regalo</span><b>${esc(r.servicio)}</b></div>
+            <div><span>Para</span><b>${esc(r.para)}</b></div>
+            <div><span>Valor</span><b>${pesos(r.valor)}</b></div>
+          </div></div>
+        <div class="card"><b>Cómo pagar</b><p class="muted" style="margin:6px 0 0">${esc(r.datosPago)}</p></div>
+        ${r.wa ? `<a class="btn wa" target="_blank" rel="noopener" href="${esc(r.wa)}">Enviar el comprobante por WhatsApp</a>` : ''}
+        <p class="muted">Cuando confirmemos el pago te enviamos por WhatsApp el bono con su código y un enlace para que se lo reenvíes.</p>
+        <button class="btn sec" id="g-otro">Regalar otro servicio</button>`;
+      $('#g-otro').onclick = () => vistaRegalar();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { b.disabled = false; b.textContent = 'Pedir bono de regalo'; $('#g-err').textContent = e.message; }
+  };
+}
+
 /* ---------- Planes ---------- */
 function vistaPlanes() {
   $('#v-planes').innerHTML = '<h2>Planes mensuales <small>pagas una vez, vienes varias</small></h2>' + D.planes.map(p => `
@@ -449,12 +569,13 @@ function pintarDatos() {
   try {
     const r = await api({ a: 'datos' });
     D = r; guardar('datos', r); pintarDatos();
-    if (!q.get('cita')) vistaReservar();
+    if (!q.get('cita') && !q.get('bono')) vistaReservar();
     cargarFotos();
   } catch (e) {
     if (!previo) $('#v-reservar').innerHTML = '<div class="err">' + esc(e.message) + '</div><button class="btn sec" onclick="location.reload()">Reintentar</button>';
   }
   if (q.get('cita') && D) { tab('micita'); vistaMiCita(q.get('cita'), q.get('t')); }
+  else if (q.get('bono') && D) vistaBono(q.get('bono'));
 })();
 </script>
 </body>
